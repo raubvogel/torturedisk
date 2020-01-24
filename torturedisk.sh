@@ -1,6 +1,15 @@
 #!/bin/bash
 
 ##
+# Torturedisk
+#
+# RELEASE: 0.1.0.
+#
+# REQUIREMENTS:
+# - If running fio with libiaio
+#   - You can use the fio package for your OS if available
+#   - OR, you can compile fio (https://github.com/axboe/fio) yourself
+#
 # REQUIREMENTS:
 # - If running fio with libiaio
 #   - You can use the fio package for your OS if available
@@ -18,7 +27,7 @@
 #    write: sequential write
 #    randread: random read
 #    randwrite: random write
-# 2. You cannot really for the tests
+#
 
 usage()
 {
@@ -27,11 +36,6 @@ usage()
 cat << EOF
 $program_name: Run a set of disk performance tests and save the results
 in a .csv-formatted file.
-
-Idea is to provide a series of reproduceable tests that can be let run
-in sequence for as long as it takes (maybe hours or days) while we do
-something more useful with our time. At the end of the run we have
-a file we can use to build tables from comparing all the different tests.
 
 Usage: $program_name -d dev -o outdir [-i iodepth] [-e ioengine]"
 
@@ -43,9 +47,12 @@ Where:
      file. 
      Summary filename is "$outdir.result" inside the directory $outdir.
    -i/--iodepth: IO Depth. Default is 8
-   -e/--ioengine: IO engine. Default is libaio.
-     If you want to use spdk, you need to provide the path to the spdk
-     fio plugin (/path/to/spdk/examples/nvme/fio_plugin/fio_plugin)
+   -e/--ioengine: IO engine. 
+     Accepted values: libaio, spdk
+     Default is libaio.
+   -m|--mixreads: Rate between reads and writes
+     If you want to enter and array enter it in quotes: "100 70 50 25 30"
+     Default: "70 50 30"
  
 Arguments can be given in any order provided they have their required flags.
 dev and outdir are required.
@@ -64,8 +71,10 @@ EOF
 }
 
 # Constants and default values
-# FIO=/root/dev/fio/fio
-FIO=/usr/bin/fio
+FIOPATH=/root/dev/fio
+FIO=$FIOPATH/fio
+SPDKPATH=/root/dev/spdk
+
 IOENGINE="libaio"
 IODEPTH=8
 
@@ -82,21 +91,32 @@ gen_job_file()
 {
     # gen_job_file job block_size [rwmixread]
     job=$1
+    outjob=$OUTDIR/$job
+
     block_size=$2
-    echo "[global]" > $job
-    echo "bs=$block_size" >> $job
-    echo "direct=1" >> $job
-    echo "rw=$job" >> $job
-    echo "ioengine=$IOENGINE" >> $job
-    echo "iodepth=$IODEPTH" >> $job
-    echo "runtime=$RUNTIME" >> $job
-    if [ "$job" == "randwrite" -o "$job" == "randread" -o "$job" == "randrw" ]; then
-        echo "randrepeat=0" >> $job
+    echo "[global]" > $outjob
+    echo "bs=$block_size" >> $outjob
+    echo "direct=1" >> $outjob
+    echo "rw=$job" >> $outjob
+    echo "ioengine=$IOENGINE" >> $outjob
+    echo "iodepth=$IODEPTH" >> $outjob
+
+    if [ -z ${SSTATETYPE+x} ]
+    then
+       echo "runtime=$RUNTIME" >> $outjob
+    else
+       echo "runtime=24h" >> $outjob
+       echo "steadystate_duration=1800" >> $outjob
+       echo "steadystate=iops_slope:0.3%" >> $outjob
     fi
-    echo "[test]" >> $job
-    echo "filename=$DEV" >> $job
+
+    if [ "$job" == "randwrite" -o "$job" == "randread" -o "$job" == "randrw" ]; then
+        echo "randrepeat=0" >> $outjob
+    fi
+    echo "[test]" >> $outjob
+    echo "filename=$DEV" >> $outjob
     if [ "$job" == "randrw" ]; then
-        echo "rwmixread=$3" >> $job
+        echo "rwmixread=$3" >> $outjob
     fi
 }
 
@@ -104,7 +124,7 @@ cleanup()
 {
     for job in "${JOBS[@]}"
     do
-        rm -f $job
+        rm -f $OUTDIR/$job
     done
     rm -f *.tmp
 }
@@ -118,7 +138,10 @@ run_test()
     else
         output="$OUTDIR/fio.$job.$block_size.$3.1.log"
     fi
-    $FIO --output="$output" $job
+    $FIO --output="$output" $OUTDIR/$job
+    # LD_PRELOAD=$SPDKPATH/examples/nvme/fio_plugin $FIO --output="$output" $job
+    # ioengine=/home/mtavares/spdk/examples/nvme/fio_plugin/fio_plugin
+
 }
 select_bw() 
 {
@@ -248,6 +271,7 @@ main()
 
 
    # generate the test result table
+   # output_file="$OUTDIR/$OUTDIR.result"
    output_file="$OUTDIR/$(basename $OUTDIR).result"
    echo > "$output_file"
 
@@ -357,6 +381,18 @@ else
 	    shift
 	    shift
 	    ;;
+	 -m|--mixreads)
+	    # Treat it as an array regardless
+            read -a RWMIXREADS <<< $2
+	    shift
+	    shift
+	    ;;
+	 -s|--steadystate)
+            SSTATETYPE=$2
+            echo "Steady State Criteria = $SSTATETYPE"
+	    shift
+	    shift
+	    ;;
 	 *)
 	    usage $0
 	    ;;
@@ -364,7 +400,15 @@ else
    done
 fi
 
-echo "IODEPTH=$IODEPTH"
-echo "ioengine=$IOENGINE"
+echo "IO depth= $IODEPTH"
+
+echo "IO Engine= $IOENGINE"
+if [ $IOENGINE == "spdk" ]
+then
+   IOENGINE=$SPDKPATH/examples/nvme/fio_plugin/fio_plugin
+fi
+
+
+echo "RW Mixreads= (${RWMIXREADS[@]})"
 
 main
