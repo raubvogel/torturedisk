@@ -1,10 +1,15 @@
-# torturedrive
+# torturedisk
 Script to run a set of tests on a hard drive using fio and/or spdk
 
 Idea is to provide a series of reproduceable tests that can be let run
 in sequence for as long as it takes (maybe hours or days) while we do
 something more useful with our time. At the end of the run we have
 a file we can use to build tables from comparing all the different tests.
+
+## NOTEs:
+
+1. I do need to write better documentation!
+1. This script was originally created in black and green.
 
 ## Aknowledgements
 
