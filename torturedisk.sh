@@ -3,7 +3,9 @@
 ##
 # Torturedisk
 #
-# RELEASE: 0.1.0.
+# RELEASE: 0.2.0.
+# 0.1.0. Initial release
+# 0.2.0. Add fio+spdk support
 #
 # REQUIREMENTS:
 # - If running fio with libiaio
@@ -21,6 +23,7 @@
 #      Note you will also need to compile fio (https://github.com/axboe/fio)
 #   2. Find the PCI path for the NVMe hard drive you want to test
 #   3. Run this script providing the path to where you built spdk 
+#
 # NOTE:
 # 1. Job types (rw=)
 #    read: sequential read
@@ -75,7 +78,10 @@ FIOPATH=/root/dev/fio
 FIO=$FIOPATH/fio
 SPDKPATH=/root/dev/spdk
 
+RUNTEST="$FIO" 
+
 IOENGINE="libaio"
+IOENGINEPATH="$IOENGINE"
 IODEPTH=8
 
 RUNTIME=30
@@ -98,7 +104,7 @@ gen_job_file()
     echo "bs=$block_size" >> $outjob
     echo "direct=1" >> $outjob
     echo "rw=$job" >> $outjob
-    echo "ioengine=$IOENGINE" >> $outjob
+    echo "ioengine=$IOENGINEPATH" >> $outjob
     echo "iodepth=$IODEPTH" >> $outjob
 
     if [ -z ${SSTATETYPE+x} ]
@@ -114,10 +120,17 @@ gen_job_file()
         echo "randrepeat=0" >> $outjob
     fi
     echo "[test]" >> $outjob
-    echo "filename=$DEV" >> $outjob
     if [ "$job" == "randrw" ]; then
         echo "rwmixread=$3" >> $outjob
     fi
+
+    if [ "$IOENGINE" == "spdk" ]; then
+        echo 'thread=1' >> $outjob
+        echo "filename=trtype=PCIe traddr=$(echo $DEV|tr \: \.) ns=1" >> $outjob
+    else
+        echo "filename=$DEV" >> $outjob
+    fi
+
 }
 
 cleanup() 
@@ -138,9 +151,8 @@ run_test()
     else
         output="$OUTDIR/fio.$job.$block_size.$3.1.log"
     fi
-    $FIO --output="$output" $OUTDIR/$job
-    # LD_PRELOAD=$SPDKPATH/examples/nvme/fio_plugin $FIO --output="$output" $job
-    # ioengine=/home/mtavares/spdk/examples/nvme/fio_plugin/fio_plugin
+
+    $RUNTEST --output="$output" $OUTDIR/$job
 
 }
 select_bw() 
@@ -377,7 +389,7 @@ else
 	    shift
 	    ;;
 	 -e|--ioengine)
-            IODENGINE=$2
+            IOENGINE=$2
 	    shift
 	    shift
 	    ;;
@@ -403,11 +415,16 @@ fi
 echo "IO depth= $IODEPTH"
 
 echo "IO Engine= $IOENGINE"
-if [ $IOENGINE == "spdk" ]
-then
-   IOENGINE=$SPDKPATH/examples/nvme/fio_plugin/fio_plugin
-fi
-
+case $IOENGINE in
+   "spdk" )
+      IOENGINEPATH="$SPDKPATH/examples/nvme/fio_plugin/fio_plugin"
+      RUNTEST="/usr/bin/env LD_PRELOAD=$IOENGINEPATH $FIO"
+      ;;
+   *)
+      RUNTEST="$FIO" 
+      IOENGINEPATH="$IOENGINE"
+      ;;
+esac
 
 echo "RW Mixreads= (${RWMIXREADS[@]})"
 
