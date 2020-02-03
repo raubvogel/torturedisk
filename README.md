@@ -14,7 +14,7 @@ you will need fio and/or spdk:
    - You can use the fio package for your OS if available
    - OR, you can download [fio](https://github.com/axboe/fio) and compile it yourself
 1. If testing NVMe hard drives, you will need spdk. 
-   -  Download [spdkr] (https://github.com/spdk/spdk) and build it.
+   -  Download [spdk](https://github.com/spdk/spdk) and build it.
    -  Find the PCI path for the NVMe hard drive you want to test
 1. If you want to run `spdk+fio` tests (run fio with spdk support), you need both.
    - You will need to compile fio before compiling spdk since you will need to provide its path during configuration..
