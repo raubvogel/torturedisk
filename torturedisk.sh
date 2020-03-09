@@ -5,7 +5,7 @@
 #
 # AUTHOR: raubvogel@gmail.com
 #
-# RELEASE: 0.2.2.
+# RELEASE: 0.2.3.
 # 0.1.0. Initial release
 # 0.2.0. Add fio+spdk support
 # 0.2.1. Redo help page
@@ -25,6 +25,8 @@
 #      Note you will also need to compile fio (https://github.com/axboe/fio)
 #   2. Find the PCI path for the NVMe hard drive you want to test
 #   3. Run this script providing the path to where you built spdk 
+# 0.2.3. Some of the randrw tests are not being run. 
+#        (https://github.com/raubvogel/torturedisk/issues/1)
 #
 # NOTE:
 #
@@ -185,7 +187,7 @@ run_test()
        # echo "xargs -a $conf_file $RUNTEST > $outfile"
        xargs -a $conf_file $RUNTEST > $outfile
     else
-       $RUNTEST --output="$outfile" $conf_file
+       $RUNTEST $conf_file --output="$outfile"
     fi
 
 }
@@ -302,7 +304,7 @@ print_table_header()
     echo >> "$out_file" 
 }
 
-main()
+run_all_jobs()
 {
    # run all the jobs
    for job_name in "${JOBS[@]}"
@@ -315,6 +317,7 @@ main()
             outfile="$confile.log"
             echo "run $job_name in $block_size"
             gen_job_file $job_name $block_size $confile 
+            run_test $confile $outfile 
          else
             # echo "run $job_name in ${BLOCK_SIZES[@]}"
             for job_rate in "${RWMIXREADS[@]}"
@@ -323,11 +326,16 @@ main()
                 outfile="$confile.log"
                 echo "run $job_name in $block_size, rwmixread=$job_rate"
                 gen_job_file $job_name $block_size $confile $job_rate
+                run_test $confile $outfile 
             done
          fi
-         run_test $confile $outfile 
       done
    done
+}
+
+# OUTDIR, JOBS, BLOCK_SIZES, RWMIXREADS
+create_output_file()
+{
 
    # Initialize arrays
    bw_array=()
@@ -376,8 +384,7 @@ main()
          iops_array=()
          lat_array=()
       # spedk+perf current not able to do randrw
-      elif [ "$job" == "randrw" ] && [ $IOENGINE != "spdk+perf" ]
-      then
+      else
         for rate in "${RWMIXREADS[@]}"
          do
             # echo "[$job"_"$rate] ${BLOCK_SIZES[@]}" >> "$output_file"
@@ -412,6 +419,16 @@ main()
          done
       fi
    done
+}
+
+main()
+{
+
+   # run all the jobs
+   run_all_jobs
+
+   # Process the logs
+   create_output_file
 
    cleanup
 }
