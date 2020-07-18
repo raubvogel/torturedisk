@@ -12,9 +12,9 @@ you will need fio and/or spdk:
 
 1. If testing normal hard drives, be them spinny or SSDs, you only need fio.
    - You can use the fio package for your OS if available
-   - OR, you can download [fio](https://github.com/axboe/fio) and compile it yourself
+   - OR, you can download [FIO](https://github.com/axboe/fio) and compile it yourself
 1. If testing NVMe hard drives, you will need spdk. 
-   -  Download [spdk](https://github.com/spdk/spdk) and build it. There might be packages available for your OS but I do not know where they are.
+   -  Download [SPDK](https://github.com/spdk/spdk) and build it. There might be packages available for your OS but I do not know where they are.
    -  Find the PCI path for the NVMe hard drive you want to test
 1. If you want to run `spdk+fio` tests (run fio with spdk support), you need both.
    - You will need to compile fio before compiling spdk since you will need to provide its path during configuration..
@@ -23,7 +23,7 @@ you will need fio and/or spdk:
 
 1. I do need to write better documentation!
 1. However, this is not about how to use SPDK or FIO or whatever. There are 
-already great docs on how to usei [FIO](https://fio.readthedocs.io/en/latest/fio_doc.html) and [SPDK](https://spdk.io/doc/index.html); let's not reinvent the wheel, shall we?
+already great docs on how to use [FIO](https://fio.readthedocs.io/en/latest/fio_doc.html) and [SPDK](https://spdk.io/doc/index.html); let's not reinvent the wheel, shall we?
 1. This script was originally created in black and green.
 
 ## Examples:

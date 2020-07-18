@@ -6,14 +6,17 @@
 # AUTHOR: raubvogel@gmail.com
 #
 # RELEASE: 0.2.3.
-# 0.1.0. Initial release
-# 0.2.0. Add fio+spdk support
-# 0.2.1. Redo help page
+# 0.2.3.
+# - We have now a default OUTDIR which is based on date+time so we can
+#   make multiple *sequential* runs while without entering OUTDIR.
 # 0.2.2. 
 # - Get spdk+perf partially working. Still does not work with rw
 # - 1K seconds = 1000 seconds, not 1024 seconds
 # - Make select_lat(), select_bw(), select_ipos() aware of spdk+perf
 # - Convert time from min and hours to seconds for spdk+perf
+# 0.2.1. Redo help page
+# 0.2.0. Add fio+spdk support
+# 0.1.0. Initial release
 #
 # REQUIREMENTS:
 # - If running fio with libiaio
@@ -82,7 +85,9 @@ EOF
     exit 1
 }
 
+########################################################################
 # Constants and default values
+########################################################################
 FIOPATH=/root/dev/fio
 FIO=$FIOPATH/fio
 SPDKPATH=/root/dev/spdk
@@ -97,10 +102,12 @@ RUNTIME=30
 BLOCK_SIZES=(512 4K 8K 16K 64K 128K 256K 512K)
 JOBS=(write randwrite read randread randrw)
 
-# if you test randrw, you need to specify the rwmixreads in this array
+# The default rwmixreads for randrw
 RWMIXREADS=(70 50 30)
 
+########################################################################
 # Functions
+########################################################################
 
 gen_job_file() 
 {
@@ -433,10 +440,12 @@ main()
    cleanup
 }
 
-# Processing arguments
+########################################################################
+# Processing command line arguments
 # NOTE:
 # - For default values, see "Constants and default values" session above
 #
+########################################################################
 if [ $# -lt 2 ]
 then
    usage $0
@@ -449,15 +458,6 @@ else
       case $key in
          -d|--device)
 	    DEV=$2
-	    shift
-	    shift
-	    ;;
-         -o|--outdir)
-            OUTDIR="$2"
-            if [ ! -d $OUTDIR ]
-	    then
-                mkdir -p $OUTDIR
-            fi
 	    shift
 	    shift
 	    ;;
@@ -489,6 +489,15 @@ else
 	    shift
 	    shift
 	    ;;
+         -o|--outdir)
+            OUTDIR="$2"
+            if [ ! -d $OUTDIR ]
+	    then
+                mkdir -p $OUTDIR
+            fi
+	    shift
+	    shift
+	    ;;
 	 -s|--steadystate)
             SSTATETYPE=$2
             echo "Steady State Criteria = $SSTATETYPE"
@@ -507,7 +516,13 @@ else
    done
 fi
 
-# Bailout if outdir and device were not entered
+# Bailout if device was not entered
+if [ -z "$OUTDIR" ]
+then
+   # Default name for OUTDIR is based on the IOENGINE and $DEV
+   OUTDIR="$DEV-$IOENGINE"_$(date +%F-%H%M)
+   echo "OUTDIR= $OUTDIR"
+fi
 
 echo "Tests to be performed = (${JOBS[@]})"
 echo "Max runtime per test: $RUNTIME"
@@ -531,4 +546,4 @@ esac
 
 echo "Read/Write ratios to be run = (${RWMIXREADS[@]})"
 
-main
+# main
