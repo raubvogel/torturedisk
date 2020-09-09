@@ -3,9 +3,18 @@
 ##
 # Torturedisk
 #
+# Wrapper to automate disk (and disk like beings) performance testing
+#
 # AUTHOR: raubvogel@gmail.com
 #
-# RELEASE: 0.2.3.
+# RELEASE: 0.3.1.
+# 0.3.1.
+# - Submit multiple devices as input, which will then be tested in
+#   sequence using the same parameters
+# 0.3.0.
+# - Pass the output dir as argument since we are creating it at main()
+#   for each device we will be running the test on.
+# - Solved why the randomrw tests are not being properly written to logs
 # 0.2.3.
 # - We have now a default OUTDIR which is based on date+time so we can
 #   make multiple *sequential* runs while without entering OUTDIR.
@@ -46,14 +55,18 @@ cat << EOF
 $program_name: Run a set of disk performance tests and save the results
 in a .csv-formatted file.
 
-Usage: $program_name -d dev -o outdir [-i iodepth] [-e ioengine]"
+Usage: $program_name -d "dev" -o outdir [-i iodepth] [-e ioengine]"
 
 Where:
 
-   -d/--device: Name of the device. 
+   -d/--device: list of devices $program_name will be run on. 
      If ioengine=spdk*, device is the PCI "name" of NVMe device
      Ex: 
-       -d 0000:63:00.0
+       -d "0000:63:00.0"
+     A list of one is still a list
+     All devices need to be of the same "type" (/dev/ vs PCI addresses)
+     Listing the devices in quotes is specially important when there are more
+      than one device.
    -o/--outdir: Name of the directory to save all the logs and the summary
      file. 
      Summary filename is "$outdir.result" inside the directory $outdir.
@@ -109,15 +122,18 @@ RWMIXREADS=(70 50 30)
 # Functions
 ########################################################################
 
+#==============================================================
+#==============================================================
 gen_job_file() 
 {
     # gen_job_file job block_size [rwmixread]
-    # gen_job_file $job_name $block_size $confile $rate
+    # gen_job_file $job_name $block_size $conf_file $device $job_rate
     job_name=$1
     block_size=$2
     conf_file=$3
-    if [ $# -ge 4 ]; then
-       job_rate=$4
+    device=$4
+    if [ $# -ge 5 ]; then
+       job_rate=$5
     fi
 
     if [ $IOENGINE == "spdk+perf" ]
@@ -129,7 +145,7 @@ gen_job_file()
 -w $job_name 
 -t $(echo $RUNTIME | gawk '{if(match($1, /[0-9]*[hH]/)) {printf("%d", int($1)*3600)} else if(match($1, /[0-9]*[mM]/)) {printf("%d", int($1)*60)} else {printf("%d", int($1))}}')
 -q $IODEPTH 
--r 'trtype:PCIe traddr:$DEV' 
+-r 'trtype:PCIe traddr:$device' 
 EOF
        if [ "$job_name" == "randrw" ]; then
            echo "-M $RWMIXREADS" >> $conf_file
@@ -166,23 +182,29 @@ EOF
 
        if [ "$IOENGINE" == "spdk" ]; then
            echo 'thread=1' >> $conf_file
-           echo "filename=trtype=PCIe traddr=$(echo $DEV|tr \: \.) ns=1" >> $conf_file
+           echo "filename=trtype=PCIe traddr=$(echo $device|tr \: \.) ns=1" >> $conf_file
        else
 	   # Default: fio+libaio
-           echo "filename=$DEV" >> $conf_file
+           echo "filename=$device" >> $conf_file
        fi
     fi
 }
 
+#==============================================================
+#==============================================================
 cleanup() 
 {
+    outdir=$1
+
     for job in "${JOBS[@]}"
     do
-        rm -f $OUTDIR/$job
+        rm -f $outdir/$job
     done
     rm -f *.tmp
 }
 
+#==============================================================
+#==============================================================
 run_test() 
 {
     # run_test $confile $outfile 
@@ -199,11 +221,13 @@ run_test()
 
 }
 
+#==============================================================
+# unit:KiB/S
+#==============================================================
 select_bw() 
 {
     index=$1
     data_file=$2
-    # unit:KiB/S
 
     if [ $IOENGINE == "spdk+perf" ]
     then
@@ -216,11 +240,13 @@ select_bw()
     bw_array[$index]=",$bw"
 }
 
+#==============================================================
+# unit: S
+#==============================================================
 select_iops() 
 {
     index=$1
     data_file=$2
-    # unit: S
 
     if [ $IOENGINE == "spdk+perf" ]
     then
@@ -232,11 +258,13 @@ select_iops()
     iops_array[$index]=",$iops"
 }
 
+#==============================================================
+# unit:ms
+#==============================================================
 select_lat() 
 {
     index=$1
     file=$2
-    # unit:ms
 
     if [ $IOENGINE == "spdk+perf" ]
     then
@@ -251,21 +279,25 @@ select_lat()
     lat_array[$index]=",$lat"
 }
 
+#==============================================================
+# unit:KB/S
+#==============================================================
 select_bw_rw() 
 {
     index=$1
     file=$2
-    # unit:KB/S
     bw_read=$(fgrep "BW=" "$file" | grep read | gawk -F[=,]+ '{if(match($4, /[0-9]*[Kk]/)) {printf("%d", $4)} else {printf("%d", int($4)*1024)}}')
     bw_write=$(fgrep "BW=" "$file" | grep write | gawk -F[=,]+ '{if(match($4, /[0-9]*[Kk]/)) {printf("%d", $4)} else {printf("%d", int($4)*1024)}}')
     bw_array_rw_read[$index]=",$bw_read"
     bw_array_rw_write[$index]=",$bw_write"
 }
 
+#==============================================================
 # Extract average IOPS from the data file created by running the test
 # NOTE:
 # - IOPS unity: second
 # - If IOPS given in thousands (K) of seconds, it will be multiplied by 1000.
+#==============================================================
 select_iops_rw() 
 {
     index=$1
@@ -276,11 +308,13 @@ select_iops_rw()
     iops_array_rw_write[$index]=",$iops_write"
 }
 
+#==============================================================
 # Extract average latency from the data file created by running the test
 # NOTE:
 # - Latency unity: ms (millisecond). 
 # - If Latency given in microsecond, it will convert to millisecond by dividing
 #   by 1000.
+#==============================================================
 select_lat_rw() 
 {
     index=$1
@@ -311,8 +345,17 @@ print_table_header()
     echo >> "$out_file" 
 }
 
+#==============================================================
+# Run all the jobs
+# 
+# Input:
+# - device 
+# - out_dir
+#==============================================================
 run_all_jobs()
 {
+   device_name=$1
+   out_dir=$2
    # run all the jobs
    for job_name in "${JOBS[@]}"
    do
@@ -320,19 +363,19 @@ run_all_jobs()
       for block_size in "${BLOCK_SIZES[@]}"
       do
          if [ "$job_name" != "randrw" ]; then
-            confile="$OUTDIR/torture.$job_name.$block_size.1"
+            confile="$out_dir/torture.$job_name.$block_size.1"
             outfile="$confile.log"
-            echo "run $job_name in $block_size"
-            gen_job_file $job_name $block_size $confile 
+            echo "run $job_name with $block_size on $device_name"
+            gen_job_file $job_name $block_size $confile $device_name
             run_test $confile $outfile 
          else
             # echo "run $job_name in ${BLOCK_SIZES[@]}"
             for job_rate in "${RWMIXREADS[@]}"
             do
-                confile="$OUTDIR/torture.$job_name.$block_size.$job_rate.1"
+                confile="$out_dir/torture.$job_name.$block_size.$job_rate.1"
                 outfile="$confile.log"
-                echo "run $job_name in $block_size, rwmixread=$job_rate"
-                gen_job_file $job_name $block_size $confile $job_rate
+                echo "run $job_name with $block_size, rwmixread=$job_rate on $device_name"
+                gen_job_file $job_name $block_size $confile $device_name $job_rate
                 run_test $confile $outfile 
             done
          fi
@@ -340,7 +383,14 @@ run_all_jobs()
    done
 }
 
-# OUTDIR, JOBS, BLOCK_SIZES, RWMIXREADS
+#==============================================================
+# $device $out_dir
+# out_dir     : Directory where logs will be stored
+# JOBS        : 
+# BLOCK_SIZES : Block size used for 
+# RWMIXREADS  : Ratio between reads and writes. 70 = 70 read/30 write
+#==============================================================
+echo "create_output_file()"
 create_output_file()
 {
 
@@ -359,7 +409,7 @@ create_output_file()
 
 
    # generate the test result table
-   output_file="$OUTDIR/$(basename $OUTDIR).result"
+   output_file="$out_dir/$(basename $out_dir).result"
    echo > "$output_file"
 
    for job in "${JOBS[@]}"
@@ -374,7 +424,7 @@ create_output_file()
          do
             block_size=${BLOCK_SIZES[$i]}
             
-            log_file="$OUTDIR/torture.$job.$block_size.1.log"
+            log_file="$out_dir/torture.$job.$block_size.1.log"
             echo $log_file
             select_bw $i $log_file
             select_iops $i $log_file
@@ -401,8 +451,7 @@ create_output_file()
             do
                 block_size=${BLOCK_SIZES[$i]}
             
-                log_file="$OUTDIR/torture.$job.$block_size.$rate.1.log"
-                echo $log_file
+                log_file="$out_dir/torture.$job.$block_size.$rate.1.log"
                 select_bw_rw $i $log_file
                 select_iops_rw $i $file
                 select_lat_rw $i $log_file
@@ -414,8 +463,6 @@ create_output_file()
             echo "[bw_write (KB/S)] ${bw_array_rw_write[@]}" >> $output_file
             echo "[lat_write (ms)] ${lat_array_rw_write[@]}" >> $output_file
             echo "[iops_write] ${iops_array_rw_write[@]}" >> $output_file
-            echo >> $output_file
-            
             # clear array
             bw_array_rw_read=()
             iops_array_rw_read=()
@@ -431,13 +478,29 @@ create_output_file()
 main()
 {
 
-   # run all the jobs
-   run_all_jobs
+   # run all the jobs in all devices
+   # We will loop over all entries in $DEV
+   # run_all_jobs
+   for device in "${DEV[@]}"
+   do
+      if [ -z "$OUTDIR" ]
+      then
+         # Default name for resultdir is based on the IOENGINE and $device
+         resultdir="$(basename $device)-$IOENGINE"_$(date +%F-%H%M)
+      else
+         # If you have $OUTDIR, resultdir is based on it and $device
+         resultdir="$(basename $device)-$OUTDIR"_$(date +%F-%H%M)
+      fi
+      mkdir $resultdir
 
-   # Process the logs
-   create_output_file
+      # rm -f $resultdir/$job
+      run_all_jobs $device $resultdir
 
-   cleanup
+      # Process the logs
+      create_output_file $device $resultdir
+
+      cleanup $resultdir
+   done
 }
 
 ########################################################################
@@ -457,7 +520,8 @@ else
 
       case $key in
          -d|--device)
-	    DEV=$2
+	    # Treat it as an array regardless
+            read -a DEV <<< $2
 	    shift
 	    shift
 	    ;;
@@ -517,12 +581,6 @@ else
 fi
 
 # Bailout if device was not entered
-if [ -z "$OUTDIR" ]
-then
-   # Default name for OUTDIR is based on the IOENGINE and $DEV
-   OUTDIR="$DEV-$IOENGINE"_$(date +%F-%H%M)
-   echo "OUTDIR= $OUTDIR"
-fi
 
 echo "Tests to be performed = (${JOBS[@]})"
 echo "Max runtime per test: $RUNTIME"
@@ -546,4 +604,4 @@ esac
 
 echo "Read/Write ratios to be run = (${RWMIXREADS[@]})"
 
-# main
+main
