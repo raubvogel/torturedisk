@@ -1,8 +1,8 @@
 # torturedisk
 Script to run a set of tests on a hard drive using fio and/or spdk
 
-Idea is to provide a series of reproduceable tests that can be let run
-in sequence for as long as it takes (maybe hours or days) while we do
+Idea is to provide a series of reproduceable tests that can be allowed to 
+run in sequence for as long as it takes (maybe hours or days) while we do
 something more useful with our time. At the end of the run we have
 a file we can use to build tables from comparing all the different tests.
 
@@ -25,6 +25,12 @@ you will need fio and/or spdk:
 1. However, this is not about how to use SPDK or FIO or whatever. There are 
 already great docs on how to use [FIO](https://fio.readthedocs.io/en/latest/fio_doc.html) and [SPDK](https://spdk.io/doc/index.html); let's not reinvent the wheel, shall we?
 1. This script was originally created in black and green.
+
+### What is a device?
+
+A device here a storage device represented either as a block device
+(`/dev/sdb` or `/data/test.dat` or a PCI address (`0000:63:00.0`) in case of 
+NVMe hard drives.
 
 ## Examples:
 1. Test the block device `/dev/sdb` using default settings (`fio_libaio`, 
