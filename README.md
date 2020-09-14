@@ -81,5 +81,6 @@ PCI_WHITELIST='0000:63:00.0' HUGEMEM=8192 $HOME/dev/spdk/scripts/setup.sh
 1. The basic structure for this code was copied from 
 [Sennajox](https://github.com/sennajox)'s code, https://gist.github.com/sennajox/3667757. I was planning on doing something similar but I really liked how the code was structured. Thanks!
 1. The command line parsing arguments was stolen from a [stackoverflow thread](https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash), as it was more clever than I could come up with without relying on python.
-1.  Jared Walton <jawalking@gmail.com> for showing that fio can monitor when
+1. Jared Walton <jawalking@gmail.com> for showing that fio can monitor when
 data has reached steady state and how to tell it to do so.
+1. O. Tange (2011): GNU Parallel - The Command-Line Power Tool, ;login: The USENIX Magazine, February 2011:42-47

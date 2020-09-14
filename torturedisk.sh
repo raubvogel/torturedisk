@@ -7,7 +7,11 @@
 #
 # AUTHOR: raubvogel@gmail.com
 #
-# RELEASE: 0.3.1.
+# RELEASE: 0.4.0.
+# 0.4.0.
+# - Allow to run test on multiple devices in parallel (as opposite to run the 
+#   tests themselves in parallel) using GNU parallel. If device list is provided
+#   but parallel is not installed, it will run them in series.
 # 0.3.1.
 # - Submit multiple devices as input, which will then be tested in
 #   sequence using the same parameters
@@ -55,7 +59,7 @@ cat << EOF
 $program_name: Run a set of disk performance tests and save the results
 in a .csv-formatted file.
 
-Usage: $program_name -d "dev" -o outdir [-i iodepth] [-e ioengine]"
+Usage: $program_name -d "dev" -o outdir [-i iodepth] [-e ioengine] [-p ] [-b blocksize] [j jobs] [-j jobs] [-m mixthreads] [-t steadystate] [-t time]"
 
 Where:
 
@@ -90,6 +94,7 @@ Where:
    -s/--steadystate: Run test either for 24h or until achieving steady state.
    -t|--time: Run time. 1 = 1s, 3m = 3min, 2h = 2 hours.
      Default: 30s
+   -p/--parallel: Parallel mode
  
 Arguments can be given in any order provided they have their required flags.
 dev and outdir are required.
@@ -117,6 +122,9 @@ JOBS=(write randwrite read randread randrw)
 
 # The default rwmixreads for randrw
 RWMIXREADS=(70 50 30)
+
+# Do we have the gnu parallel function?
+HAS_PARALLEL=$(which parallel ; $?)
 
 ########################################################################
 # Functions
@@ -475,32 +483,53 @@ create_output_file()
    done
 }
 
+#==============================================================
+# Run all the selected tests in the selected device
+#==============================================================
+test_device()
+{
+   device=$1
+
+   if [ -z "$OUTDIR" ]
+   then
+      # Default name for resultdir is based on the IOENGINE and $device
+      resultdir="$(basename $device)-$IOENGINE"_$(date +%F-%H%M)
+   else
+      # If you have $OUTDIR, resultdir is based on it and $device
+      resultdir="$(basename $device)-$OUTDIR"_$(date +%F-%H%M)
+   fi
+   mkdir $resultdir
+
+   # rm -f $resultdir/$job
+   run_all_jobs $device $resultdir
+
+   # Process the logs
+   create_output_file $device $resultdir
+
+   cleanup $resultdir
+}
+
+#==============================================================
+#==============================================================
 main()
 {
-
    # run all the jobs in all devices
    # We will loop over all entries in $DEV
    # run_all_jobs
-   for device in "${DEV[@]}"
-   do
-      if [ -z "$OUTDIR" ]
-      then
-         # Default name for resultdir is based on the IOENGINE and $device
-         resultdir="$(basename $device)-$IOENGINE"_$(date +%F-%H%M)
-      else
-         # If you have $OUTDIR, resultdir is based on it and $device
-         resultdir="$(basename $device)-$OUTDIR"_$(date +%F-%H%M)
-      fi
-      mkdir $resultdir
 
-      # rm -f $resultdir/$job
-      run_all_jobs $device $resultdir
-
-      # Process the logs
-      create_output_file $device $resultdir
-
-      cleanup $resultdir
-   done
+   if [ -z "$PARALLEL" ] or [ "$PARALLEL" = false ]
+   then
+      # Not in parallel mode. Run tests on one device after the other
+      for device in "${DEV[@]}"
+      do
+         test_device $device
+      done
+   elif [ "$HAS_PARALLEL" = true ] and [ "$PARALLEL" = true ]
+   then
+      # In parallel mode and we have GNU parallel function. Run tests 
+      # on all devices at the same time
+      parallel --will-cite echo ::: "${DEV[@]}"
+   fi
 }
 
 ########################################################################
@@ -560,6 +589,10 @@ else
                 mkdir -p $OUTDIR
             fi
 	    shift
+	    shift
+	    ;;
+	 -p|--parallel)
+            PARALLEL=true
 	    shift
 	    ;;
 	 -s|--steadystate)
