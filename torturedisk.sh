@@ -41,8 +41,9 @@
 #      Note you will also need to compile fio (https://github.com/axboe/fio)
 #   2. Find the PCI path for the NVMe hard drive you want to test
 #   3. Run this script providing the path to where you built spdk 
-# 0.2.3. Some of the randrw tests are not being run. 
-#        (https://github.com/raubvogel/torturedisk/issues/1)
+#
+# - If running in parallel mode
+#   - GNU parallel
 #
 # NOTE:
 #
@@ -86,6 +87,7 @@ Where:
        write: sequential write
        randread: random read
        randwrite: random write
+       randrw: random read/write
    -m|--mixreads: % Rate between reads and writes
      If you want to enter and array enter it in quotes: "100 70 50 25 30"
      Default: "70 50 30"
@@ -124,7 +126,7 @@ JOBS=(write randwrite read randread randrw)
 RWMIXREADS=(70 50 30)
 
 # Do we have the gnu parallel function?
-HAS_PARALLEL=$(which parallel ; $?)
+HAS_PARALLEL=$(which parallel ; echo $?)
 
 ########################################################################
 # Functions
@@ -136,6 +138,7 @@ gen_job_file()
 {
     # gen_job_file job block_size [rwmixread]
     # gen_job_file $job_name $block_size $conf_file $device $job_rate
+    # [ $DEBUG = 'true' ] && echo "inside gen_job_file()"
     job_name=$1
     block_size=$2
     conf_file=$3
@@ -144,10 +147,12 @@ gen_job_file()
        job_rate=$5
     fi
 
+    # [ $DEBUG = 'true' ] && echo "===> ioengine == $IOENGINE"
     if [ $IOENGINE == "spdk+perf" ]
     then
        # spdk+perf can't do "K"s in block size
        # runtime in seconds
+       # [ $DEBUG = 'true' ] && echo "=====> if: ioengine = spdk+perf "
        cat > $conf_file << EOF
 -o $(echo $block_size | gawk '{if(match($1, /[0-9]*[Kk]/)) {printf("%d", int($1)*1024)} else {printf("%d", int($1))}}')
 -w $job_name 
@@ -159,7 +164,8 @@ EOF
            echo "-M $RWMIXREADS" >> $conf_file
        fi
     else
-       # fio-specific config
+       # [ $DEBUG = 'true' ] && echo "=====> if: ioengine = fio something, but with libaio or spdk? "
+       # Create fio-specific config
        cat > $conf_file << EOF
 [global]
 bs=$block_size
@@ -169,10 +175,14 @@ ioengine=$IOENGINEPATH
 iodepth=$IODEPTH
 EOF
 
-       if [ -z ${SSTATETYPE+x} ]
+       if [ -z "$SSTATETYPE" ]
        then
+          # Just run it for $RUNTIME
           echo "runtime=$RUNTIME" >> $conf_file
        else
+          # As of now there is only one type of steady state setting, so that
+          # is what it will run
+
           echo "runtime=24h" >> $conf_file
           echo "steadystate_duration=1800" >> $conf_file
           echo "steadystate=iops_slope:0.3%" >> $conf_file
@@ -189,9 +199,11 @@ EOF
        fi
 
        if [ "$IOENGINE" == "spdk" ]; then
+           # [ $DEBUG = 'true' ] && echo "=======> ioengine = fio with spdk "
            echo 'thread=1' >> $conf_file
            echo "filename=trtype=PCIe traddr=$(echo $device|tr \: \.) ns=1" >> $conf_file
        else
+           # [ $DEBUG = 'true' ] && echo "=======> ioengine = fio with libaio "
 	   # Default: fio+libaio
            echo "filename=$device" >> $conf_file
        fi
@@ -216,14 +228,16 @@ cleanup()
 run_test() 
 {
     # run_test $confile $outfile 
+    # [ $DEBUG = 'true' ] && echo "=> inside run_test()"
     conf_file=$1
     outfile=$2
 
     if [ $IOENGINE == "spdk+perf" ]
     then
-       # echo "xargs -a $conf_file $RUNTEST > $outfile"
+       # [ $DEBUG = 'true' ] && echo "====> spdk+perf: xargs -a $conf_file $RUNTEST > $outfile"
        xargs -a $conf_file $RUNTEST > $outfile
     else
+       # [ $DEBUG = 'true' ] && echo "====> NOT spdk+perf: $RUNTEST $conf_file --output=$outfile"
        $RUNTEST $conf_file --output="$outfile"
     fi
 
@@ -364,6 +378,7 @@ run_all_jobs()
 {
    device_name=$1
    out_dir=$2
+   # [ $DEBUG = 'true' ] && echo "=> inside run_all_jobs()"
    # run all the jobs
    for job_name in "${JOBS[@]}"
    do
@@ -371,19 +386,22 @@ run_all_jobs()
       for block_size in "${BLOCK_SIZES[@]}"
       do
          if [ "$job_name" != "randrw" ]; then
+            # [ $DEBUG = 'true' ] && echo "====> Not randrw"
             confile="$out_dir/torture.$job_name.$block_size.1"
             outfile="$confile.log"
-            echo "run $job_name with $block_size on $device_name"
+            # [ $DEBUG = 'true' ] && echo "run $job_name with $block_size on $device_name"
             gen_job_file $job_name $block_size $confile $device_name
+            # [ $DEBUG = 'true' ] && echo "====> call run_test()"
             run_test $confile $outfile 
          else
-            # echo "run $job_name in ${BLOCK_SIZES[@]}"
+            # [ $DEBUG = 'true' ] && echo "====> randrw: run $job_name in ${BLOCK_SIZES[@]}"
             for job_rate in "${RWMIXREADS[@]}"
             do
                 confile="$out_dir/torture.$job_name.$block_size.$job_rate.1"
                 outfile="$confile.log"
-                echo "run $job_name with $block_size, rwmixread=$job_rate on $device_name"
+                # [ $DEBUG = 'true' ] && echo "run $job_name with $block_size, rwmixread=$job_rate on $device_name"
                 gen_job_file $job_name $block_size $confile $device_name $job_rate
+                # [ $DEBUG = 'true' ] && echo "====> call run_test()"
                 run_test $confile $outfile 
             done
          fi
@@ -398,9 +416,9 @@ run_all_jobs()
 # BLOCK_SIZES : Block size used for 
 # RWMIXREADS  : Ratio between reads and writes. 70 = 70 read/30 write
 #==============================================================
-echo "create_output_file()"
 create_output_file()
 {
+   echo "create_output_file()"
 
    # Initialize arrays
    bw_array=()
@@ -517,18 +535,24 @@ main()
    # We will loop over all entries in $DEV
    # run_all_jobs
 
-   if [ -z "$PARALLEL" ] or [ "$PARALLEL" = false ]
+   if [ -z "$PARALLEL" ] || [ "$PARALLEL" = false ]
    then
       # Not in parallel mode. Run tests on one device after the other
       for device in "${DEV[@]}"
       do
          test_device $device
       done
-   elif [ "$HAS_PARALLEL" = true ] and [ "$PARALLEL" = true ]
+   elif [ ! -z "$HAS_PARALLEL" ] && [ "$PARALLEL" = true ]
    then
       # In parallel mode and we have GNU parallel function. Run tests 
       # on all devices at the same time
-      parallel --will-cite echo ::: "${DEV[@]}"
+      # export -f test_device
+      # parallel --will-cite test_device ::: "${DEV[@]}"
+      for device in "${DEV[@]}"
+      do
+         test_device $device &
+      done
+      wait
    fi
 }
 
@@ -540,6 +564,7 @@ main()
 ########################################################################
 if [ $# -lt 2 ]
 then
+   echo "You only passed $# people"
    usage $0
 else
    POSITIONAL=()
@@ -554,25 +579,29 @@ else
 	    shift
 	    shift
 	    ;;
-	 -i|--iodepth)
-            IODEPTH=$2
-	    shift
-	    shift
-	    ;;
 	 -b|--blocksize)
 	    # Treat it as an array regardless
             read -a BLOCK_SIZES <<< $2
 	    shift
 	    shift
 	    ;;
-	 -j|--jobs)
-	    # Treat it as an array regardless
-            read -a JOBS <<< $2
-	    shift
+	 --debug)
+            DEBUG=true
 	    shift
 	    ;;
 	 -e|--ioengine)
             IOENGINE=$2
+	    shift
+	    shift
+	    ;;
+	 -i|--iodepth)
+            IODEPTH=$2
+	    shift
+	    shift
+	    ;;
+	 -j|--jobs)
+	    # Treat it as an array regardless
+            read -a JOBS <<< $2
 	    shift
 	    shift
 	    ;;
@@ -596,7 +625,7 @@ else
 	    shift
 	    ;;
 	 -s|--steadystate)
-            SSTATETYPE=$2
+	    [ -z "$2" ] && SSTATETYPE="default" || SSTATETYPE=$2
             echo "Steady State Criteria = $SSTATETYPE"
 	    shift
 	    shift
@@ -607,6 +636,7 @@ else
 	    shift
 	    ;;
 	 *)
+            echo "Nobody here"
 	    usage $0
 	    ;;
       esac
@@ -616,6 +646,8 @@ fi
 # Bailout if device was not entered
 
 echo "Tests to be performed = (${JOBS[@]})"
+echo "On the devices (${DEV[@]})"
+echo "Block sizes = (${BLOCK_SIZES[@]})"
 echo "Max runtime per test: $RUNTIME"
 echo "IO depth= $IODEPTH"
 
@@ -636,5 +668,7 @@ case $IOENGINE in
 esac
 
 echo "Read/Write ratios to be run = (${RWMIXREADS[@]})"
+
+# [ $PARALLEL = true ] && echo "Parallel mode selected"
 
 main
