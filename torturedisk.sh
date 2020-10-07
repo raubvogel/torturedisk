@@ -126,7 +126,7 @@ JOBS=(write randwrite read randread randrw)
 RWMIXREADS=(70 50 30)
 
 # Do we have the gnu parallel function?
-HAS_PARALLEL=$(which parallel ; echo $?)
+# HAS_PARALLEL=$(which parallel ; echo $?)
 
 ########################################################################
 # Functions
