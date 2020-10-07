@@ -613,10 +613,10 @@ else
 	    ;;
          -o|--outdir)
             OUTDIR="$2"
-            if [ ! -d $OUTDIR ]
-	    then
-                mkdir -p $OUTDIR
-            fi
+            # if [ ! -d $OUTDIR ]
+	    # then
+            #     mkdir -p $OUTDIR
+            # fi
 	    shift
 	    shift
 	    ;;
